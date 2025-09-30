@@ -12,11 +12,9 @@ DB_CONFIG = {
 }
 
 def get_mysql_conn():
-    """Establishes and returns a MySQL database connection."""
     return pymysql.connect(**DB_CONFIG)
 
 def get_table_data(table_name):
-    """Fetches all data from a specified table."""
     conn = get_mysql_conn()
     try:
         df = pd.read_sql(f"SELECT * FROM `{table_name}`", conn)
@@ -28,7 +26,6 @@ def get_table_data(table_name):
     return df
 
 def run_query(query, params=None):
-    """Executes a SELECT query and returns the results as a DataFrame."""
     conn = get_mysql_conn()
     try:
         df = pd.read_sql(query, conn, params=params)
@@ -39,18 +36,22 @@ def run_query(query, params=None):
         conn.close()
     return df
 
+# In modify_query function
 def modify_query(query, params=None):
-    """Executes a DDL or DML query (e.g., INSERT, UPDATE, DELETE)."""
+    """Executes a DDL or DML query (e.g., INSERT, UPDATE, DELETE) and returns affected rows."""
     conn = get_mysql_conn()
     try:
         cursor = conn.cursor()
         cursor.execute(query, params)
+        affected = cursor.rowcount
         conn.commit()
+        return affected
     except Exception as e:
         conn.rollback()
         raise e
     finally:
         conn.close()
+
 
 # ------------------ PAGE CONFIG ------------------
 st.set_page_config(page_title="Cricbuzz Live Match Dashboard", layout="wide")
@@ -437,6 +438,7 @@ elif page == "SQL Analytics":
 # ------------------ CRUD OPERATIONS ------------------
 elif page == "CRUD Operations":
     st.header("⚙️ CRUD Operations (Admin Panel)")
+
     tables = [
         "icc_ranks",
         "live_matches",
@@ -452,6 +454,17 @@ elif page == "CRUD Operations":
     crud_table = st.selectbox("Select Table", tables)
     action = st.radio("Action", ["Create", "Read", "Update", "Delete"], key="crud_action")
 
+    # Helper: Get primary key of selected table
+    def get_primary_key(table_name):
+        conn = get_mysql_conn()
+        cursor = conn.cursor()
+        cursor.execute(f"SHOW KEYS FROM `{table_name}` WHERE Key_name = 'PRIMARY'")
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return result[4]   # Column name of PK
+        return None
+
     # READ
     if action == "Read":
         st.subheader(f"📖 Data from `{crud_table}`")
@@ -463,15 +476,19 @@ elif page == "CRUD Operations":
         with st.expander("➕ Insert New Row"):
             st.write(f"Insert new row into `{crud_table}`")
             new_values = st.text_area("Enter comma-separated values:")
+
             if st.button("Insert Row"):
                 conn = get_mysql_conn()
                 cursor = conn.cursor()
-                cursor.execute(f"DESCRIBE {crud_table};")
+                cursor.execute(f"DESCRIBE `{crud_table}`;")
                 col_count = len(cursor.fetchall())
                 conn.close()
+
                 placeholders = ",".join(["%s"] * col_count)
+                values = tuple([v.strip() for v in new_values.split(",")])
+
                 try:
-                    modify_query(f"INSERT INTO `{crud_table}` VALUES ({placeholders})", tuple(new_values.split(",")))
+                    modify_query(f"INSERT INTO `{crud_table}` VALUES ({placeholders})", values)
                     st.success("✅ Row inserted successfully!")
                 except Exception as e:
                     st.error(f"❌ Insert failed: {e}")
@@ -479,30 +496,45 @@ elif page == "CRUD Operations":
     # UPDATE
     elif action == "Update":
         with st.expander("✏️ Update Existing Row"):
-            conn = get_mysql_conn()
-            cursor = conn.cursor()
-            cursor.execute(f"DESCRIBE {crud_table};")
-            valid_columns = [col[0] for col in cursor.fetchall()]
-            conn.close()
+            pk_col = get_primary_key(crud_table)
+            if not pk_col:
+                st.error(f"⚠️ No primary key found for `{crud_table}`. Cannot update.")
+            else:
+                conn = get_mysql_conn()
+                cursor = conn.cursor()
+                cursor.execute(f"DESCRIBE `{crud_table}`;")
+                valid_columns = [col[0] for col in cursor.fetchall()]
+                conn.close()
 
-            row_id = st.number_input("Row ID:", min_value=1, step=1)
-            column = st.selectbox("Column name:", valid_columns)
-            new_value = st.text_input("New value:")
+                record_id = st.text_input(f"Enter {pk_col} of row to update:")
+                column = st.selectbox("Column to update:", valid_columns)
+                new_value = st.text_input("New value:")
 
-            if st.button("Update Row"):
-                try:
-                    modify_query(f"UPDATE `{crud_table}` SET `{column}`=%s WHERE id=%s", (new_value, row_id))
-                    st.success("✅ Row updated successfully!")
-                except Exception as e:
-                    st.error(f"❌ Update failed: {e}")
+                if st.button("Update Row"):
+                    try:
+                        modify_query(
+                            f"UPDATE `{crud_table}` SET `{column}`=%s WHERE `{pk_col}`=%s",
+                            (new_value, record_id)
+                        )
+                        st.success("✅ Row updated successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Update failed: {e}")
 
     # DELETE
     elif action == "Delete":
         with st.expander("🗑️ Delete Row"):
-            row_id = st.number_input("Row ID to delete:", min_value=1, step=1)
-            if st.button("Delete Row"):
-                try:
-                    modify_query(f"DELETE FROM `{crud_table}` WHERE id=%s", (row_id,))
-                    st.success("✅ Row deleted successfully!")
-                except Exception as e:
-                    st.error(f"❌ Delete failed: {e}")
+            pk_col = get_primary_key(crud_table)
+            if not pk_col:
+                st.error(f"⚠️ No primary key found for `{crud_table}`. Cannot delete.")
+            else:
+                record_id = st.text_input(f"Enter {pk_col} of row to delete:")
+                if st.button("Delete Row"):
+                    try:
+                        modify_query(
+                            f"DELETE FROM `{crud_table}` WHERE `{pk_col}`=%s",
+                            (record_id,)
+                        )
+                        st.success("✅ Row deleted successfully!")
+                    except Exception as e:
+                        st.error(f"❌ Delete failed: {e}")
+

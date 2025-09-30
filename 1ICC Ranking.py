@@ -39,7 +39,7 @@ print("✅ Tables created or already exist")
 
 # --- API CONFIG ---
 headers = {
-	"x-rapidapi-key": "141ab0c4a8msh93aae951a18e4d0p102908jsn5b5b50ac879f",
+	"x-rapidapi-key": "f493d43d51mshd2b86741565d751p1ef6a6jsn5103eba1f487",
 	"x-rapidapi-host": "cricbuzz-cricket.p.rapidapi.com"
 }
 
@@ -53,9 +53,9 @@ player_data = response.json()
 count = 0
 for player in player_data.get('rank', []):
     try:
-        player_id = int(player.get('id') or player.get('playerId', 0))
+        player_id = int(player.get('id')
         player_rank = int(player.get('rank', 0))
-        player_name = player.get('name') or player.get('playerName')
+        player_name = player.get('name')
         country = player.get('country')
         rating = int(player.get('rating', 0))
         points = int(player.get('points', 0))
@@ -86,3 +86,4 @@ for row in team_data['values']:
 conn.commit()
 conn.close()
 print("🎉 Done")
+
